@@ -1,6 +1,4 @@
-﻿using System.Data;
-
-namespace ShipGame
+﻿namespace ShipGame
 {
     internal class Program
     {
@@ -30,11 +28,12 @@ namespace ShipGame
             if(option == "1")
             {
                 Console.WriteLine(choseOptionMessage + "Connect with others");
+                computer.OnlineStart();
             }
             else if(option == "2")
             {
                 Console.WriteLine(choseOptionMessage + "Play with computer");
-                computer.Start();   
+                computer.ComputerStart();   
             }
             else
             {
@@ -58,7 +57,7 @@ namespace ShipGame
                 "Sinking Ships:\nWhen a player successfully hits all the cells of an opponent's ship, they announce \"sunk\" for that ship. The opponent must mark all the cells of that ship as hits.\r\n\r\n",
                 "Winning the Game\nThe game continues with players taking turns until one player has successfully sunk all of their opponent's ships. That player is declared the winner.\r\n\r\n",
                 "Play with computer\nComputers grid is chosen randomly by a system, it guesses your grid based on system",
-                "Connect with other\nConnection is done over TCP connection the system listens to moves made by another person and you since why you can play together. You might need to enable the app thru firewall for this to work"
+                "Connect with other\nConnection is done over TCP, You need to input someones IP to connect to that person, but first tht"
             };
 
             // O - hit  | X - didn't hit
