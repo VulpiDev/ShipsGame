@@ -16,7 +16,10 @@
             Console.WriteLine(welcomeMessage);
             Console.WriteLine(selectOption);
             var option = Console.ReadLine();
-            OptionSelection(option);
+            if (option != null)
+            {
+                OptionSelection(option);
+            }
         }
 
         static void OptionSelection(string option)
@@ -57,7 +60,7 @@
                 "Sinking Ships:\nWhen a player successfully hits all the cells of an opponent's ship, they announce \"sunk\" for that ship. The opponent must mark all the cells of that ship as hits.\r\n\r\n",
                 "Winning the Game\nThe game continues with players taking turns until one player has successfully sunk all of their opponent's ships. That player is declared the winner.\r\n\r\n",
                 "Play with computer\nComputers grid is chosen randomly by a system, it guesses your grid based on system",
-                "Connect with other\nConnection is done over TCP, You need to input someones IP to connect to that person, but first tht"
+                "Connect with other\nConnection is done over TCP, You need to input someones IP to connect to that person, but first that person needs to open the game and listen for connections"
             };
 
             // O - hit  | X - didn't hit

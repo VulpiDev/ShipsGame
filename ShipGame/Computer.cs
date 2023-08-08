@@ -1,5 +1,9 @@
-﻿using System.Net;
+﻿using System.CodeDom.Compiler;
+using System.Diagnostics;
+using System.Net;
 using System.Net.Sockets;
+using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -19,26 +23,26 @@ namespace ShipGame
 
     internal class Computer
     {
-        private const int Port = 9090;
         public static List<Coordinates> alreadyGuessed = new List<Coordinates>();
         public static Coordinates lastCorrectGuess = new Coordinates(-1,-1);
-        public static List<int> doneDirections = new List<int>(); // left,right,up,down
         public static int[] directions = { 1, -1};
         public static int limiter = 0;
+        private static string errorMessage = $"Ooops something went wrong :/";
+        private static int gridSize = 10;
 
-        IPAddress hostAddress;
-        IPAddress clientAddress;
+        private static Dictionary<char, int> charValueDict = new Dictionary<char, int>()
+                    {
+                        { 'a', 1 }, { 'b', 2 }, { 'c', 3 }, { 'd', 4 }, { 'e', 5 }, { 'f', 6 }, { 'g', 7 }, { 'h', 8 }, { 'i', 9 }, { 'j', 10 }, { 'k', 11 }, { 'l', 12 }, { 'm', 13 },
+                        { 'n', 14 }, { 'o', 15 }, { 'p', 16 }, { 'q', 17 }, { 'r', 18 }, { 's', 19 }, { 't', 20 }, { 'u', 21 }, { 'v', 22 }, { 'w', 23 }, { 'x', 24 }, { 'y', 25 }, { 'z', 26 }
+                    };
+
+        IPAddress hostAddress = IPAddress.None;
+        IPAddress clientAddress = IPAddress.None;
+
         public void ComputerStart()
         {
-            //  Settings:
-            int gridSize = 10;  //  Size of the grids
-            //  End of Settings
-
             char[][] userGrid = SetUserGrid(gridSize);
-
-            Console.WriteLine("Setting Computer grid"); 
             char[][] computerGrid = RandomGrid(gridSize, userGrid);
-
             ComputerGame(userGrid, computerGrid);
         }
 
@@ -47,8 +51,6 @@ namespace ShipGame
             Console.WriteLine("0 - Connect | 1 - Listen for connections");
             var option = Console.ReadLine();
             bool isClient = false;
-            int gridSize = 10;  //  Size of the grids
-
 
             if (option == "0")
             {
@@ -63,79 +65,82 @@ namespace ShipGame
                 SendMessage(hostAddress, "Hello Host!");
                 Thread.Sleep(1000);
 
-                retry:
-                try
+                while (true)
                 {
-                    ListenForConnectionClient();
-                }catch(SocketException se)
-                {
-                    Console.WriteLine(se.ErrorCode + se.Message);
-                    Thread.Sleep(1000);
-                    goto retry; 
+                    try
+                    {
+                        ListenForConnectionClient();
+                        break;
+                    }
+                    catch (SocketException se)
+                    {
+                        Console.WriteLine(errorMessage+$"\nError code: {se.ErrorCode}\nError message: {se.Message}\nRetrying ...");
+                        Thread.Sleep(1000);
+                    }
                 }
             }
-            Console.ReadLine();
 
             //  Assuming this went correct: connection is possible and was made!
-
             Console.WriteLine("The game starts now!");
             if(isClient)
             {
                 Console.WriteLine("The host is placing his battleships ...");
                 string hostStringGrid = ListenForConnectionClient(true);
                 char[][] hostGrid = StringToGrid(hostStringGrid, gridSize);
-                (int[] hostShips, int hostOnesAmount) = GetShipsAndOnesAmount(hostGrid);
+                char[][] clientGrid;
+                int[] hostShips= GetShipsAndOnesAmount(hostGrid);
+                int hostOnesAmount = CountOnes(hostGrid);
 
                 Console.WriteLine();
                 for (int i = 0; i < hostShips.Length; i++)
                 {
                     Console.WriteLine($"Ship sizes: {hostShips[i]}");
                 }
-                Console.WriteLine($"amount of \"Ones\": {hostOnesAmount}");
+                Console.WriteLine($"amount of ships (1): {hostOnesAmount}");
 
-                tryagain:
-                char[][] clientGrid = SetUserGrid(gridSize);
-                string clientGridPackage = GridToString(clientGrid);
-                (int[] clientShips, int clientOnesAmount) = GetShipsAndOnesAmount(clientGrid);
+                while (true)
+                {
+                    clientGrid = SetUserGrid(gridSize);
+                    string clientGridPackage = GridToString(clientGrid);
+                    int clientOnesAmount = CountOnes(clientGrid);
 
-                if (clientOnesAmount == hostOnesAmount)
-                {
-                    SendMessage(hostAddress, clientGridPackage);
-                }
-                else
-                {
-                    Console.WriteLine($"The \"Ones\" amount doesn't check up | see: client : {clientOnesAmount} host: {hostOnesAmount}");
-                    goto tryagain;
+                    if (clientOnesAmount == hostOnesAmount)
+                    {
+                        SendMessage(hostAddress, clientGridPackage);
+                        break;
+                    }
+                    else
+                    {
+                        Console.WriteLine($"The amount of ships (1) isn't equal | Client (you) : {clientOnesAmount} Host: {hostOnesAmount}");
+                    }
                 }
 
                 OnlineGame(hostGrid, clientGrid, false);
             }
             else
             {
-                Console.WriteLine("YOU ARE SETTING A GRID | BASED ON THAT GRID THE PLAYER 2 WILL SET HIS GRID");
+                Console.WriteLine("You are setting a grid | Based on your grid the 2 player will set his grid");
                 char[][] hostGrid = SetUserGrid(gridSize);
                 string hostGridPackage = GridToString(hostGrid);
-                string clientStringGrid = "err0";
+                string clientStringGrid;
                 SendMessage(clientAddress, hostGridPackage);
-                retry:
-                try
+                while (true)
                 {
-                    clientStringGrid = ListenForConnectionHost(true);
-                }catch(SocketException)
-                {
-                    Console.WriteLine("Listening error: retrying in 1");
-                    Thread.Sleep(1000);
-                    goto retry;
+                    try
+                    {
+                        clientStringGrid = ListenForConnectionHost(true);
+                        break;
+                    }
+                    catch (SocketException se)
+                    {
+                        Console.WriteLine(errorMessage + $"\nError code: {se.ErrorCode}\nError message: {se.Message}\nRetrying ...");
+                        Thread.Sleep(1000);
+                    }
                 }
 
-
-               char[][] clientGrid = StringToGrid(clientStringGrid, gridSize);
-
-
+                char[][] clientGrid = StringToGrid(clientStringGrid, gridSize);
                 OnlineGame(hostGrid, clientGrid, true);
-
             }
-            Console.ReadLine();
         }
 
         public void OnlineGame(char[][] host, char[][] client, bool isHost)
@@ -147,7 +152,7 @@ namespace ShipGame
             char[][] hostTrackingGrid = FillGrid(host.Length);
             char[][] clientTrackingGrid = FillGrid(client.Length);
 
-            (int[] temp, int maxPoints) = GetShipsAndOnesAmount(host);
+            int maxPoints = CountOnes(host);
 
             while (clientResult < maxPoints && hostResult < maxPoints)
             {
@@ -164,11 +169,10 @@ namespace ShipGame
                     Console.WriteLine($"HOST (PLAYER1) - {hostResult}");
                     Console.WriteLine($"CLIENT (PLAYER2) - {clientResult}");
 
-                    Console.WriteLine("\nWrite coordinates you want to strike!");
-                    var coordinates = Console.ReadLine();
+                    int result = Strike(client, hostTrackingGrid);
 
-                    int result = Strike(coordinates, client, hostTrackingGrid);
                     hostResult += result;
+
 
                     SendMessage(clientAddress, hostResult.ToString()); // send message 1 - result
 
@@ -179,31 +183,35 @@ namespace ShipGame
                     SendMessage(clientAddress, clientString); // send message 2 - result
 
 
-                    retryResult:
-                    try
+                    while (true)
                     {
-                        // listener 1 for results
-                        string stringClientResult = ListenForConnectionHost(true); // listener 1 - results
-                        clientResult = int.Parse(stringClientResult);
-                    }
-                    catch (SocketException)
-                    {
-                        Console.WriteLine("Retrying in 1... (results - host)");
-                        Thread.Sleep(1000);
-                        goto retryResult;
+                        try
+                        {
+                            // listener 1 for results
+                            string stringClientResult = ListenForConnectionHost(true); // listener 1 - results
+                            clientResult = int.Parse(stringClientResult);
+                            break;
+                        }
+                        catch (SocketException)
+                        {
+                            Console.WriteLine($"\nWaiting for results ...");
+                            Thread.Sleep(1000);
+                        }
                     }
 
-                    retry:
-                    try
+                    while (true)
                     {
-                        string newHostString = ListenForConnectionHost(true); // listener 2 - grid
-                        host = StringToGrid(newHostString, client.Length);
-                    }
-                    catch (SocketException)
-                    {
-                        Console.WriteLine("Retrying in 1... (grid - host)");
-                        Thread.Sleep(1000);
-                        goto retry;
+                        try
+                        {
+                            string newHostString = ListenForConnectionHost(true); // listener 2 - grid
+                            host = StringToGrid(newHostString, client.Length);
+                            break;
+                        }
+                        catch (SocketException)
+                        {
+                            Console.WriteLine($"\nWaiting for grid ...");
+                            Thread.Sleep(1000);
+                        }
                     }
                 }
                 else // Client
@@ -218,44 +226,43 @@ namespace ShipGame
 
                     string stringHostResults;
 
-                    retryResult:
-                    try
+                    while (true)
                     {
-                        stringHostResults = ListenForConnectionClient(true); // listener 1 - host result
-                        hostResult = int.Parse(stringHostResults);
+                        try
+                        {
+                            stringHostResults = ListenForConnectionClient(true);
+                            hostResult = int.Parse(stringHostResults);
+                            break;
+                        }
+                        catch (SocketException)
+                        {
+                            Console.WriteLine($"\nWaiting for results ...");
+                            Thread.Sleep(1000);
+                        }
                     }
-                    catch (SocketException)
-                    {
-                        Console.WriteLine("Retrying in 1 (results - client)");
-                        Thread.Sleep(1000);
-                        goto retryResult;
-                    }
-                    
 
-                    retry:
-                    try
+
+                    while (true)
                     {
-                        newClientString = ListenForConnectionClient(true); // listener 2 - grid
-                    }
-                    catch (SocketException)
-                    {
-                        Console.WriteLine("Retrying in 1 (grid - client)");
-                        Thread.Sleep(1000);
-                        goto retry;
+                        try
+                        {
+                            newClientString = ListenForConnectionClient(true);
+                            break;
+                        }
+                        catch (SocketException)
+                        {
+                            Console.WriteLine($"\nWaiting for grid ...");
+                            Thread.Sleep(1000);
+                        }
                     }
                         
                     client = StringToGrid(newClientString,host.Length);
 
-                    Console.WriteLine("\n--- SCORES ---");
-                    Console.WriteLine($"HOST (PLAYER1) - {hostResult}");
-                    Console.WriteLine($"CLIENT (PLAYER2) - {clientResult}");
+                    string scores = $"\n--- SCORES ---\nHOST (PLAYER1) - {hostResult}\nCLIENT (PLAYER2) - {clientResult}";
+                    Console.WriteLine(scores);
 
-                    Console.WriteLine("\nWrite coordinates you want to strike!");
-                    var coordinates = Console.ReadLine();
-
-                    int result = Strike(coordinates, host, clientTrackingGrid);
+                    int result = Strike(host, clientTrackingGrid);
                     clientResult += result;
-
                     SendMessage(hostAddress, clientResult.ToString()); // send message 1 - result
 
                     Thread.Sleep(1000);
@@ -264,19 +271,23 @@ namespace ShipGame
                     SendMessage(hostAddress, hostString); // send message 2 - grid  
                 }
 
-                if (clientResult >= maxPoints)
-                {
-                    Console.WriteLine("CLIENT (PLAYER2) WINS!");
-                    Console.WriteLine($"--- RESULTS ---\nCLIENT (PLAYER2) - {clientResult}\nhost (player1) - {hostResult}");
+                bool clientWon = clientResult >= maxPoints, hostWon = hostResult >= maxPoints, tie = (hostResult + clientResult) == 2*maxPoints;
+
+                if (clientWon){
+                    string clientWinMessage = $"\nCLIENT (PLAYER2) WINS!\n--- RESULTS ---\nCLIENT (PLAYER2) - {clientResult}\nhost (player1) - {hostResult}";
+                    Console.WriteLine(clientWinMessage);
                     break;
-                }else if(hostResult >= maxPoints)
-                {
-                    Console.WriteLine("HOST (PLAYER1) WINS!");
-                    Console.WriteLine($"--- RESULTS ---\nHOST (PLAYER1) - {hostResult}\nclient (player2) - {clientResult}");
+                }else if (hostWon){
+                    string hostWinMessage = $"\nHOST (PLAYER1) WINS!\n--- RESULTS ---\nHOST (PLAYER1) - {hostResult}\nclient (player2) - {clientResult}";
+                    Console.WriteLine(hostWinMessage);
+                    break;
+                }else if(tie){
+                    string tieMessage = $"\nTIE!\n--- RESULTS ---\nHOST (PLAYER1) - {hostResult}\nclient (player2) - {clientResult}";
+                    Console.WriteLine(tieMessage);
                     break;
                 }
-
             }
+            Console.ReadLine();
         }
         char[][] StringToGrid(string gridString, int gridSize)
         {
@@ -296,7 +307,6 @@ namespace ShipGame
                     }
                     else
                     {
-                        // Handle case when gridString is shorter than expected
                         grid[i][j] = ' ';
                     }
                 }
@@ -313,10 +323,8 @@ namespace ShipGame
             {
                 writer.Write(new string(grid[i]));
             }
-
             return writer.ToString();
         }
-
 
         public string ListenForConnectionClient(bool messageHidden = false, int port = 9090)
         {
@@ -328,9 +336,13 @@ namespace ShipGame
             using (TcpClient client = listener.AcceptTcpClient())
             {
                 Console.WriteLine("Connection accepted.");
-                IPEndPoint hostEndPoint = (IPEndPoint)client.Client.RemoteEndPoint;
-                IPAddress hostIP = hostEndPoint.Address;
-                int clientPort = hostEndPoint.Port;
+                IPAddress? hostIP = null;
+                IPEndPoint? hostEndPoint = client.Client.RemoteEndPoint as IPEndPoint;
+                if (hostEndPoint != null)
+                {
+                    hostIP = hostEndPoint.Address;
+                    int clientPort = hostEndPoint.Port;
+                }
 
                 using (NetworkStream stream = client.GetStream())
                 {
@@ -338,7 +350,12 @@ namespace ShipGame
                     int bytesRead = stream.Read(buffer, 0, buffer.Length);
 
                     string receivedMessage = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                    hostAddress = hostIP;
+
+                    if (hostIP != null)
+                    {
+                        hostAddress = hostIP;
+                    }
+
                     if (messageHidden == false)
                     {
                         Console.WriteLine("Received message: " + receivedMessage);
@@ -361,17 +378,26 @@ namespace ShipGame
             using (TcpClient client = listener.AcceptTcpClient())
             {
                 Console.WriteLine("Connection accepted.");
-                IPEndPoint clientEndPoint = (IPEndPoint)client.Client.RemoteEndPoint;
-                IPAddress clientIP = clientEndPoint.Address;
-                int clientPort = clientEndPoint.Port;
+                IPEndPoint? clientEndPoint = client.Client.RemoteEndPoint as IPEndPoint;
+                IPAddress? clientIP = null;
 
+                if (clientEndPoint != null)
+                {
+                    clientIP = clientEndPoint.Address;
+                    int clientPort = clientEndPoint.Port;
+                }
                 using (NetworkStream stream = client.GetStream())
                 {
                     byte[] buffer = new byte[1024];
                     int bytesRead = stream.Read(buffer, 0, buffer.Length);
 
                     string receivedMessage = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                    clientAddress = clientIP;
+
+                    if (clientIP != null)
+                    {
+                        clientAddress = clientIP;
+                    }
+
                     if (messageHidden == false)
                     {
                         Console.WriteLine("Received message: " + receivedMessage);
@@ -385,88 +411,103 @@ namespace ShipGame
 
         public void SendMessage(IPAddress ip, string message = "Hello")
         {
-            bool isConnected = false;
+
             var inputIp = "127.0.0.1";
+            bool isUnsuccessful = false;
 
-            if (ip == IPAddress.None || ip == null)
+            do
             {
-                Console.WriteLine("Write the IP you want to play with: ");
-                inputIp = Console.ReadLine();
-            }
-            
-            IPAddress IPadress = IPAddress.Parse(inputIp);
-            IPEndPoint clientIp = new IPEndPoint(IPadress, 9090);
+                if (ip == IPAddress.None || ip == null)
+                {
+                    Console.WriteLine("Write the IP you want to play with: ");
+                    inputIp = Console.ReadLine();
+                    inputIp ??= "127.0.0.1";
+                }
 
-            if (ip != IPAddress.None && ip != null)
-            {
+                IPAddress? iPAddress;
+                IPEndPoint clientIp;
+                bool isValid = IPAddress.TryParse(inputIp, out iPAddress);
+
+                if (isValid && iPAddress != null)
+                {
+                    isUnsuccessful = false;
+                    clientIp = new IPEndPoint(iPAddress, 9090);
+                }
+                else
+                {
+                    isUnsuccessful = true;
+                    continue;
+                }
+
+
+
+                if (ip != IPAddress.None && ip != null)
+                {
+                    isUnsuccessful = false;
                     clientIp = new IPEndPoint(ip, 9090);
-            }
+                }
 
+                byte[] messageBytes = Encoding.UTF8.GetBytes(message);
 
-            byte[] messageBytes = Encoding.UTF8.GetBytes(message);
-
-            using (Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
-            { 
-                socket.Connect(clientIp);
-                socket.Send(messageBytes);
-            }
+                using (Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+                {
+                    try
+                    {
+                        socket.Connect(clientIp);
+                        socket.Send(messageBytes);
+                    }catch(SocketException e)
+                    {
+                        int noClientListeningErrorCode = 10061;
+                        if (e.ErrorCode == noClientListeningErrorCode)
+                        {
+                            Console.WriteLine($"\n[TROUBLESHOOT] Possible reasons: \n1. The client (player 2) doesn't listen for connections\n2. The console app is not allowed in client firewall\n3. Mistake in the ip: [{inputIp}] - which changes to Localhost in some cases");
+                        }
+                        Console.WriteLine($"\n(?) Error: {e.Message}\nTry again ...\n");
+                        isUnsuccessful = true;
+                    }
+                }
+            } while (isUnsuccessful == true);
         }
 
         public void ComputerGame(char[][] userGrid, char[][] computerGrid)
         {
-
             Console.Clear();
-            int userOnes = CountOnes(userGrid);
-            int computerOnes = CountOnes(computerGrid);
-
+            int userOnes = CountOnes(userGrid), computerOnes = CountOnes(computerGrid);
+            int userCorrectStrikes = 0, computerCorrectStrikes = 0;
             char[][] trackingGrid = FillGrid(10);
 
-            int userCorrectStrikes = 0;
-            int computerCorrectStrikes = 0;
-
             ShowGrid(trackingGrid);
-
-            while (userCorrectStrikes != computerOnes && computerCorrectStrikes != userOnes)
+            bool gameStillOngoing = userCorrectStrikes != computerOnes && computerCorrectStrikes != userOnes;
+            while (gameStillOngoing)
             {
-                Console.WriteLine($"\nYOUR SCORE - {userCorrectStrikes}");
-                Console.WriteLine($"COMPUTER SCORE - {computerCorrectStrikes}");
+                Console.WriteLine($"\nYOUR SCORE - {userCorrectStrikes} | YOUR ONES - {userOnes}");
+                Console.WriteLine($"COMPUTER SCORE - {computerCorrectStrikes} | COMPUTER ONES - {computerOnes}");
 
-                Console.WriteLine("\nStrike cordinates (ex. 1A | (first number))");
-                var cordinates = Console.ReadLine();
+                int result = Strike(computerGrid, trackingGrid);
+                userCorrectStrikes += result;
 
-                if(cordinates != null )
-                {
-                    cordinates = cordinates.ToLower();
-                    int result;
-                    bool isSuccessful = true;
-                    result = Strike(cordinates, computerGrid, trackingGrid);
-                    if(result > 0)
-                    {
-                        userCorrectStrikes += result;
-                    }
-                    else if(result == -1)
-                    {
-                        isSuccessful = false;
-                    }
-
-                    if(isSuccessful == true)
-                    {
-                        int computerResult = ComputerStrike(userGrid);
-                        computerCorrectStrikes += computerResult;
-                    }    
-                }
+                int computerResult = ComputerStrike(userGrid);
+                computerCorrectStrikes += computerResult;
 
                 Console.WriteLine("\nTRACKING GRID: ");
                 ShowGrid(trackingGrid);
                 Console.WriteLine("\nYOUR GRID: ");
                 ShowGrid(userGrid);
-            } 
+                Console.WriteLine("\nCHEAT GRID: ");
+                ShowGrid(computerGrid);
+
+                gameStillOngoing = userCorrectStrikes != computerOnes && computerCorrectStrikes != userOnes;
+            }
+            
+            string winner = (userCorrectStrikes >= computerOnes) ? "User" : "Computer";
+            string endMessage = $"\nWinner is {winner}!!\n\nRESULTS:\nComputer - {computerCorrectStrikes}\nUser - {userCorrectStrikes}";
+
+            Console.WriteLine(endMessage);
         }
 
         public static bool WasAlreadyGuessed(int randomOne,int randomTwo)
         {
             bool isGuessed = false;
-
             for (int i = 0; i < alreadyGuessed.Count; i++)
             {
                 if (alreadyGuessed[i].X == randomOne && alreadyGuessed[i].Y == randomTwo)
@@ -480,113 +521,118 @@ namespace ShipGame
         public static int ComputerStrike(char[][] target) //    userGrid
         {
             Random random = new Random();
-            int randomX = random.Next(0, target.Length);
-            int randomY = random.Next(0, target.Length);
-
-            bool isAlreadyGuessed = WasAlreadyGuessed(randomX, randomY);
-
-            if(isAlreadyGuessed == false)
+            while (true)
             {
-                alreadyGuessed.Add(new Coordinates(randomX, randomY));
-                if (target[randomX][randomY] == '1')
+                int randomX = random.Next(0, target.Length);
+                int randomY = random.Next(0, target.Length);
+
+                bool isAlreadyGuessed = WasAlreadyGuessed(randomX, randomY);
+
+                if (isAlreadyGuessed == false)
                 {
-                    target[randomX][randomY] = 'O';
-                    lastCorrectGuess = new Coordinates(randomX, randomY);
-                    Console.WriteLine($"Last Correct Guess X: {lastCorrectGuess.X} | Last Correct Guess Y: {lastCorrectGuess.Y}");
-                    return 1;
+                    alreadyGuessed.Add(new Coordinates(randomX, randomY));
+                    if (target[randomX][randomY] == '1')
+                    {
+                        target[randomX][randomY] = 'O';
+                        lastCorrectGuess = new Coordinates(randomX, randomY);
+                        return 1;
+                    }
+                    else
+                    {
+                        target[randomX][randomY] = 'X';
+                        return 0;
+                    }
                 }
-                else
-                {
-                    target[randomX][randomY] = 'X';
-                    return 0;
-                }
-            }
-            else
-            {
-                return 0;
             }
         }
 
-        public static int Strike(string cordinates, char[][] target, char[][] trackingGrid)
+        public static int Strike(char[][] target, char[][] trackingGrid)
         {
-            string pattern = @"(\d+)([a-z])";
-            int result = 0;
+            string patternNumberFirst = @"(\d+)([a-z])";
+            int result = -1;
 
-            Dictionary<char, int> charValueDict = new Dictionary<char, int>()
+            do
             {
-                { 'a', 1 },
-                { 'b', 2 },
-                { 'c', 3 },
-                { 'd', 4 },
-                { 'e', 5 },
-                { 'f', 6 },
-                { 'g', 7 },
-                { 'h', 8 },
-                { 'i', 9 },
-                { 'j', 10 },
-                { 'k', 11 },
-                { 'l', 12 },
-                { 'm', 13 },
-                { 'n', 14 },
-                { 'o', 15 },
-                { 'p', 16 },
-                { 'q', 17 },
-                { 'r', 18 },
-                { 's', 19 },
-                { 't', 20 },
-                { 'u', 21 },
-                { 'v', 22 },
-                { 'w', 23 },
-                { 'x', 24 },
-                { 'y', 25 },
-                { 'z', 26 }
-            };
+                Console.WriteLine("\nWrite coordinates you want to strike!");
+                string? coordinates = Console.ReadLine();
 
-            Console.WriteLine($"\nYour strike: {cordinates}");
-            Match match = Regex.Match(cordinates, pattern);
-
-            if (match.Success)
-            {
-                string StringNumber = match.Groups[1].Value;
-                string character = match.Groups[2].Value;
-                char[] characters = character.ToCharArray();
-
-                int x = int.Parse(StringNumber);
-                int y = -1;
-
-                foreach (var item in charValueDict)
+                if(coordinates == null)
                 {
-                    if(item.Key == characters[0])
-                    {
-                        y = item.Value; break;
-                    }
+                    Console.WriteLine("Wrong input (null)\nTry Again ...");
+                    continue;
                 }
 
-                //  Checking for 1 in cordinates (x,y)
+                Match matchNumberFirst = Regex.Match(coordinates, patternNumberFirst);
+                if (matchNumberFirst.Success)
+                {
+                    string rawInputString = matchNumberFirst.Groups[1].Value;
+                    string characters = matchNumberFirst.Groups[2].Value;
 
-                if (y != -1 && target[x - 1][y - 1] == '1')
-                {
-                    result = 1;
-                    trackingGrid[x - 1][y - 1] = 'O';
-                    target[x - 1][y - 1] = 'O';
-                }
-                else if (target[x - 1][y - 1] != '1')
-                {
-                    trackingGrid[x - 1][y - 1] = 'X';
-                    target[x - 1][y - 1] = 'X';
+                    (int x, int y) = ExtractCoordinatesFromInput(characters, rawInputString);
+                    result = MarkAndCheckStrike(x, y, target, trackingGrid);
                 }
                 else
                 {
-                    result = 0;
-                }
+                    string patternLetterFirst = @"([a-z])(\d+)";
+                    Match matchLetterFirst = Regex.Match(coordinates, patternLetterFirst);
+                    if (matchLetterFirst.Success)
+                    {
+                        string characters = matchLetterFirst.Groups[1].Value;
+                        string rawInputString = matchLetterFirst.Groups[2].Value;
 
-            }
-            else
-            {
-                Console.WriteLine("Invalid input format. (HINT: first number then character | ex. 10A)");
-                result = -1;
-            }
+                        (int x, int y) = ExtractCoordinatesFromInput(characters, rawInputString);
+                        result = MarkAndCheckStrike(x, y, target, trackingGrid);
+                    }
+                    else
+                    {
+                        Console.WriteLine(errorMessage);
+                        result = -1;
+                    }
+                }
+                
+            }while(result == -1);
             return result;
+        }
+
+        private static int MarkAndCheckStrike(int x, int y, char[][] target, char[][] trackingGrid)
+        {
+            int result = -1;
+
+            if (x > gridSize || y > gridSize)
+            {
+                Console.WriteLine($"\n{errorMessage}\nUser error: The number or character typed is beyond grid size.");
+                return -1;
+            }
+
+            if (target[x - 1][y - 1] == '1')
+            {
+                result = 1;
+                trackingGrid[x - 1][y - 1] = 'O';
+                target[x - 1][y - 1] = 'O';
+            }
+            else if (target[x - 1][y - 1] != '1')
+            {
+                result = 0;
+                trackingGrid[x - 1][y - 1] = 'X';
+                target[x - 1][y - 1] = 'X';
+            }
+
+            return result;
+        }
+        private static (int x, int y) ExtractCoordinatesFromInput(string characters, string rawInputString)
+        {
+            int x = -1, y = -1;
+            if(int.TryParse(rawInputString, out x) == false)
+            {
+                Console.WriteLine(errorMessage + "\nError in parsing input");
+            }
+
+            if (charValueDict.TryGetValue(characters[0], out y) == false)
+            {
+                Console.WriteLine(errorMessage + "\nCharacter not found in dictionary");
+            }
+
+            return (x, y);
         }
 
         public char[][] RandomGrid(int gridSize, char[][] userGrid)
@@ -594,30 +640,30 @@ namespace ShipGame
             Random random = new Random();
             char[][] computerGrid = FillGrid(gridSize);
             int[] shipSizes;
-            int onesAmount;
+            string[] directions = { "vertical", "horizontal" };
 
-            (shipSizes, onesAmount) = GetShipsAndOnesAmount(userGrid);
-            string[] directions = {"vertical", "horizontal"};
+
+            shipSizes = GetShipsAndOnesAmount(userGrid);
 
             for (int i = 0; i < shipSizes.Length; i++)
             {
-                int randomDirection = random.Next(0, directions.Length);
-                int randomStartingPoint = random.Next(0, gridSize - shipSizes[i]);
-                int randomStartingPointTwo = random.Next(0, gridSize - shipSizes[i]);
+                int randomAxis = random.Next(0, directions.Length);
+                int pointA = random.Next(0, gridSize - shipSizes[i]);
+                int pointB = random.Next(0, gridSize - shipSizes[i]);
 
                 List<int> backupX = new List<int>();
                 List<int> backupY = new List<int>();
 
-                if (directions[randomDirection] == "vertical")
+                if (directions[randomAxis] == "vertical")
                 {
                     for (int o = 0; o < shipSizes[i]; o++)
                     {
-                        if (computerGrid[randomStartingPointTwo][randomStartingPoint] != '1')
+                        if (computerGrid[pointB][pointA] != '1')
                         {
-                            computerGrid[randomStartingPointTwo][randomStartingPoint] = '1';
-                            backupX.Add(randomStartingPointTwo);
-                            backupY.Add(randomStartingPoint);
-                            randomStartingPointTwo++;
+                            computerGrid[pointB][pointA] = '1';
+                            backupX.Add(pointB);
+                            backupY.Add(pointA);
+                            pointB++;
                         }
                         else
                         {
@@ -635,20 +681,21 @@ namespace ShipGame
                 {
                     for (int o = 0; o < shipSizes[i]; o++)
                     {
-                        if (computerGrid[randomStartingPoint][randomStartingPointTwo] != '1')
+                        if (computerGrid[pointA][pointB] != '1')
                         {
-                            computerGrid[randomStartingPoint][randomStartingPointTwo] = '1';
-                            backupX.Add(randomStartingPoint);
-                            backupY.Add(randomStartingPointTwo);
-                            randomStartingPointTwo++;
+                            computerGrid[pointA][pointB] = '1';
+                            backupX.Add(pointA);
+                            backupY.Add(pointB);
+                            pointB++;
                         }
                         else
                         {
-                            i--;
                             for (int r = 0; r < backupX.Count; r++)
                             {
                                 computerGrid[backupY[r]][backupX[r]] = '0';
                             }
+
+                            i--;
                             break;
                         }
                     }
@@ -662,7 +709,7 @@ namespace ShipGame
 
             if(onesAmountComputer != onesAmountUser)
             {
-                Console.WriteLine("LOGICAL ERROR: The user and computer amount is different, you might want to restart the game :(");
+                Console.WriteLine($"{errorMessage}\nThe user and computer amount is different, you might want to restart the game :(");
             }
             return computerGrid;
         }
@@ -700,140 +747,203 @@ namespace ShipGame
             return grid;
         }
 
-        public static (int[],int) GetShipsAndOnesAmount(char[][] userGrid)
+        public char[] FillCharArray(ref char[] array, char fillWith = '0')
         {
-            int amountOfOnes = 0;
-            List<int> shipsAndItSizes = new List<int>();
-            int sequenceSize = 0;
-            int verticalSequenceSize = 0;
+            for (int i = 0; i < array.Length; i++)
+            {
+                array[i] = fillWith;
+            }
+            return array;
+        }
+
+        public static int[] GetShipsAndOnesAmount(char[][] userGrid)
+        {
+            List<int> allSizesOfShips = new List<int>();
             char[][] userWorkOnGrid = new char[userGrid.Length][];
+
             for (int i = 0; i < userGrid.Length; i++)
             {
                 userWorkOnGrid[i] = (char[])userGrid[i].Clone();
             }
 
-            for (int i = 0; i < userWorkOnGrid.Length; i++)
-            {
-                for (int j = 0; j < userWorkOnGrid[i].Length; j++)
-                {
-                    if (userWorkOnGrid[i][j] == '1')
-                    {
-                        amountOfOnes++;
-                        sequenceSize++;
+            List<int> horizontalShips = GetHorizontalShipsAmount(userWorkOnGrid);
+            List<int> verticalShips = GetVerticalShipsAmount(userWorkOnGrid);
+            int remainingOnes = CountOnes(userWorkOnGrid);
+            List<int> allShips = combineTwoIntLists(horizontalShips, verticalShips, remainingOnes);
+            int[] shipSizes = new int[allShips.Count];
 
-                        //  Vertical scanning:
-                        for (int k = i; k < userWorkOnGrid[i].Length; k++)
-                        {
-                            if (userWorkOnGrid[k][j] == '1')
-                            {
-                                verticalSequenceSize++;
-                                userWorkOnGrid[k][j] = '0';
-                            }
-                            else if (userWorkOnGrid[k][j] == '0')
-                            {
-                                verticalSequenceSize--;
-                                break;
-                            }
-                            
-                            if(k == userWorkOnGrid[i].Length - 1)
-                            {
-                                verticalSequenceSize--;
-                                break;
-                            }
-                        }
-                    }
-                    else
-                    {
-                        if (verticalSequenceSize > 1 || sequenceSize == 1)
-                        {
-                            if(sequenceSize == 1)
-                            {
-                                verticalSequenceSize += 1;
-                                sequenceSize = 0;
-                            }
-
-                            shipsAndItSizes.Add(verticalSequenceSize);
-                            verticalSequenceSize = 0;
-                        }
-
-                        if (sequenceSize > 1)
-                        {
-                            shipsAndItSizes.Add(sequenceSize);
-                        }
-                        sequenceSize = 0;
-                    }
-
-                    if(sequenceSize == userWorkOnGrid[i].Length)
-                    {
-                        shipsAndItSizes.Add(sequenceSize);
-                        sequenceSize = 0;
-                    }
-                }
-            }
-
-            int[] array = new int[shipsAndItSizes.Count];
-
-            for (int i = 0; i < shipsAndItSizes.Count; i++)
-            {
-                array[i] = shipsAndItSizes[i];
-            }
-            return (array,amountOfOnes);
+            return shipSizes;
         }
 
+
+        private static List<int> combineTwoIntLists(List<int> firstList, List<int> secondList, [Optional] int remainingOnes)
+        {
+            List<int> combinedList = new List<int>();
+            for (int i = 0; i < firstList.Count; i++)
+            {
+                combinedList.Add(firstList[i]);
+            }
+
+            for (int i = 0; i < secondList.Count; i++)
+            {
+                combinedList.Add(secondList[i]);
+            }
+
+            if(remainingOnes > 0)
+            {
+                for (int i = 0; i < remainingOnes; i++)
+                {
+                    combinedList.Add(1);
+                }
+            }
+            
+            return combinedList;
+        }
+
+        private static List<int> GetVerticalShipsAmount(char[][] workGrid)
+        {
+            ShowGrid(workGrid);
+            List<int> verticalShips = new List<int>();
+            int verticalSequenceSize = 0;
+            bool previousCoordinatesWasOne = false;
+            Coordinates lastPositiveCoordinates = new Coordinates();
+            for (int x = 0; x < workGrid.Length; x++)
+            {
+                for(int y = 0; y < workGrid[x].Length; y++)
+                {
+                    if (workGrid[y][x] == '1')
+                    {
+                        previousCoordinatesWasOne = true;
+                        verticalSequenceSize++;
+                        lastPositiveCoordinates = new Coordinates(x,y);
+                        workGrid[y][x] = '*';                     
+                    }
+
+                    if (workGrid[y][x] == '0' || x == workGrid[x].Length -1)
+                    {
+                        if(verticalSequenceSize >= 2)
+                        {
+                            verticalShips.Add(verticalSequenceSize);
+                        }else if (previousCoordinatesWasOne)
+                        {
+                            workGrid[lastPositiveCoordinates.Y][lastPositiveCoordinates.X] = '1';
+                        }
+                        verticalSequenceSize = 0;
+                        previousCoordinatesWasOne = false;
+                    }
+                }
+            }
+            Console.WriteLine("after: \n");
+            ShowGrid(workGrid);
+            Console.WriteLine("Ship sizes: ");
+            foreach (var ship in verticalShips)
+            {
+                Console.Write(ship + ", ");
+            }
+            return verticalShips;
+        }
+
+
+        private static List<int> GetHorizontalShipsAmount(char[][] workGrid) // Don't pass real grid (just a duplicate)
+        {
+            List<int> horizontalShips = new List<int>();
+            int horizontalSequenceSize = 0;
+            bool previousCoordinatesWasOne = false;
+            Coordinates lastPositiveCoordinates = new Coordinates();
+            for (int x = 0; x < workGrid.Length; x++)
+            {
+                for (int y = 0; y < workGrid[x].Length; y++)
+                {
+                    if (workGrid[x][y] == '1')
+                    {
+                        previousCoordinatesWasOne = true;
+                        horizontalSequenceSize++;
+                        lastPositiveCoordinates = new Coordinates(x,y);
+                        workGrid[x][y] = '*';
+                    }
+
+                    if (workGrid[x][y] == '0' || y == workGrid[x].Length -1)
+                    {
+                        if (horizontalSequenceSize >= 2)
+                        {
+                            horizontalShips.Add(horizontalSequenceSize);
+                        }
+                        else if (previousCoordinatesWasOne)
+                        {
+                            workGrid[lastPositiveCoordinates.X][lastPositiveCoordinates.Y] = '1';
+                        }
+                        horizontalSequenceSize = 0;
+                        previousCoordinatesWasOne = false;
+                    }
+                }
+            }
+            Console.WriteLine("Ship sizes: ");
+            foreach(var ship in horizontalShips)
+            {
+                Console.Write(ship + ", ");
+            }
+            return horizontalShips;
+        }
+
+        private static char[] ValidatingAndCombiningCharArray(char[] mainArray, char[] componentsToBeAdded)
+        {
+            for (int i = 0; i < componentsToBeAdded.Length; i++)
+            {
+                if (componentsToBeAdded[i] == '0' || componentsToBeAdded[i] == '1')
+                {
+                    mainArray[i] = componentsToBeAdded[i];
+                }
+                else
+                {
+                    Console.WriteLine("\nOnly \'1\' and \'0\' are allowed as characters in new lines");
+                    return mainArray;
+                }
+            }
+            return mainArray;
+        }
+ 
         public char[][] SetUserGrid(int gridSize)
         {
-            Console.WriteLine("Make the grid: ");
-            char[][] grid = new char[gridSize][];
-            for (int i = 0; i < grid.Length; i++)
-            {
-                grid[i] = new char[gridSize];
-
-                for (int j = 0; j < grid[i].Length; j++)
-                {
-                    grid[i][j] = '0';
-                }
-            }
-
-            changeLine:
-
-            ShowGrid(grid);
-            Console.WriteLine("\n\nWhich line do you want to change? | type !s to submit");
-            var line = Console.ReadLine();
-            if (line != null)
-            {
-                line = line.ToLower();
-            }
+            char[][] grid = FillGrid(gridSize);
+            var line = "";
             while (line != "!s")
             {
+                ShowGrid(grid);
+                Console.WriteLine("\nWhich line do you want to change? | type !s to submit");
+                line = Console.ReadLine();
                 Console.WriteLine($"\nYou chose line: {line}");
-                if (int.Parse(line) <= gridSize)
+
+                if (int.TryParse(line, out int number))
                 {
-                    for (int i = 0; i < grid[int.Parse(line) - 1].Length; i++)
+                    if (number <= gridSize)
                     {
-                        Console.Write(grid[int.Parse(line) - 1][i] + " ");
-                    }
-                    Console.WriteLine("\n\nTo what do you want to change it? | without spaces");
-                    var newLine = Console.ReadLine();
-                    char[] newLineChar = newLine.ToCharArray();
-                    
-                    if (newLineChar.Length < gridSize)
-                    {
-                        Array.Resize(ref newLineChar, gridSize);
-                        for (int i = newLineChar.Length - 1; i >= 0; i--)
+                        number -= 1;
+                        for (int i = 0; i < grid[number].Length; i++)
                         {
-                            if (newLineChar[i] == '\0')
-                            {
-                                newLineChar[i] = '0';
-                            }
+                            Console.Write(grid[number][i] + " ");
+                        }
+
+                        Console.WriteLine("\n\nTo what do you want to change it? | without spaces");
+                        var userInput = Console.ReadLine();
+                        char[] newLine = new char[gridSize];
+                        FillCharArray(ref newLine);
+
+                        if (userInput != null)
+                        {
+                            char[] userNewLine = userInput.ToCharArray();
+                            newLine = ValidatingAndCombiningCharArray(newLine, userNewLine);
+                        }
+                        
+                        for (int i = 0; i < grid[number].Length; i++)
+                        {
+                            grid[number][i] = newLine[i];
                         }
                     }
-
-                    for (int i = 0; i < grid[int.Parse(line) - 1].Length; i++)
-                    {
-                        grid[int.Parse(line) - 1][i] = newLineChar[i];
-                    }
                 }
-                goto changeLine;
+                else
+                {
+                    Console.WriteLine("Line is not a number!");
+                }
             }
 
             Console.Clear();
@@ -880,6 +990,23 @@ namespace ShipGame
                     Console.ForegroundColor = ConsoleColor.White;
                 }
                 Console.WriteLine(" ");
+            }
+        }
+        private static void ShowArray(int[] array)
+        {
+            for (int i = 0; i < array.Length; i++)
+            {
+                array[i] = array[i];
+                Console.Write(array[i] + ", ");
+            }
+        }
+
+        private static void ShowList(List<int> values, string message = "Sizes of ships: \n")
+        {
+            Console.WriteLine(message);
+            foreach (var val in values)
+            {
+                Console.Write(val + ", ");
             }
         }
     }
